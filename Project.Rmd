@@ -1,0 +1,833 @@
+---
+title: "Exploring Patterns and Dynamics of Mouses' Neurons"
+output:
+  html_document:
+    df_print: paged
+---
+***
+
+
+**Abstract**
+
+The aim of this project is to analyse neural activity data collected during experimental sessions involving mice and to investigate the integration of data between sessions. There are several variables in the data, including feedback type, stimulus contrast, time bin, spike count and brain volume information. By using different data analysis techniques, the project is designed to obtain insight into patterns, dynamics and predictability of neural activity.
+
+
+**Section 1: Introduction **
+
+
+
+
+```{r echo = FALSE }
+library(dplyr)
+
+sessions <- list()
+for (session in 1:18) {
+  file.name <- paste0("/Users/jay/sessions/session",session, ".rds")
+  session.data <- readRDS(file.name)
+  sessions[[session]] <- session.data
+}
+
+n.session = length(sessions)
+
+#varaible names
+for (session in 1:length(sessions)) {
+  session_data <- sessions[[session]]
+  cat("Session:", session, "\n")
+  cat("Variable names:", names(session_data), "\n")
+  head(session_data)
+  cat("\n")
+}
+
+meta <- tibble(
+  mouse_name = character(n.session),
+  date_exp = character(n.session),
+  n_brain_area = integer(n.session),
+  n_neurons = integer(n.session),
+  n_trials = integer(n.session),
+  success_rate = double(n.session),
+  most_common_area = character(n.session)  
+
+)
+
+
+for (i in 1:n.session) {
+  tmp <- sessions[[i]]
+  meta[i, "mouse_name"] <- tmp$mouse_name
+  meta[i, "date_exp"] <- tmp$date_exp
+  meta[i, "n_brain_area"] <- length(unique(tmp$brain_area))
+  meta[i, "n_neurons"] <- dim(tmp$spks[[1]])[1] #number of rows
+  meta[i, "n_trials"] <- length(tmp$feedback_type)
+  meta[i, "success_rate"] <- mean(tmp$feedback_type+1)/2
+
+ 
+  # Count occurrences of each brain_area
+  area_counts <- table(tmp$brain_area)
+  # Find the most frequent brain_area(s)
+  max_count <- max(area_counts)
+  most_common_areas <- names(area_counts)[area_counts == max_count]
+  # Handle ties for most common area
+  if (TRUE) {
+    most_common_areas <- paste(most_common_areas, collapse = ", ")
+ 
+  }
+ 
+  # Assign the most common area to meta
+  meta[i, "most_common_area"] <- most_common_areas
+ 
+}
+
+x <-print(meta)
+
+```
+The table represents the following: 
+Each row represents each session (total of 18 sesssions).
+
+mouse_name : the name of mouse that was used in the experiment. 
+date_exp : the date when the experiment was conducted. 
+n_brain_area : number of brain area that were rocorded from each session. 
+n_neurons : number of nuerons that were recorded from each session. 
+n_trials : number of trials that were conducted for each session. 
+success rate: success rate of the experiment for each session. (ex. 0.6440000 would be 64%)
+most_common_area : most common brain area that was recorded from each session. The last 18th row has two most common brain area which are TH and ZI. 
+
+
+
+
+In the provided table, Session 2 consisted of 1070 neurons, 251 trials, and 5 distinct brain areas. The success rate for the trials was approximately 63%. 
+```{r echo = FALSE }
+library(dplyr)
+
+i.s=2 
+i.t=1
+
+
+average_spike_area<-function(i.t,this_session){
+  spk.trial = this_session$spks[[i.t]]
+  area= this_session$brain_area
+  spk.count=apply(spk.trial,1,sum) # calculates the total spike count for each neuron in spk.trial using apply(spk.trial, 1, sum). This sums up the spike counts across rows, representing the total spike activity for each neuron.
+  spk.average.tapply=tapply(spk.count, area, mean)
+  return(spk.average.tapply)
+  }
+
+#Test the function
+avg.spk.area.table <- average_spike_area(1,this_session = sessions[[i.s]])
+avg.spk.area.table 
+```
+These are the numbers represent the mean number of spikes for the five different brain areas in Session 2. There are CA1 (1.12), POST (1.82), root (1.54), VISl (1.40), and VISpm (2.00).
+As we can see, we can distinguish the variations in neural activity levels within the different brain areas. VISpm has the highest average spike count of 2.00 and CA1 has the lowest average spike count of 1.12. Based on these numbers, we are going to make a plot that can visualize the overall flow of the spikes over the trials so that we can find out the specific roles played by each brain area throughout the session 2. 
+
+
+```{r echo = FALSE }
+
+n.trial=length(sessions[[i.s]]$feedback_type)
+n.area=length(unique(sessions[[i.s]]$brain_area ))
+trial.summary =matrix(nrow=n.trial,ncol= n.area+1+2+1)
+for(i.t in 1:n.trial){
+  trial.summary[i.t,]=c(average_spike_area(i.t,this_session = sessions[[i.s]]),
+                          sessions[[i.s]]$feedback_type[i.t],
+                        sessions[[i.s]]$contrast_left[i.t],
+                        sessions[[i.s]]$contrast_right[i.s],
+                        i.t)
+}
+
+colnames(trial.summary)=c(names(average_spike_area(i.t,this_session = sessions[[i.s]])), 'feedback', 'left contr.','right contr.','id' )
+
+trial.summary <- as_tibble(trial.summary)
+area.col=rainbow(n=n.area,alpha=0.7)
+plot(x=1,y=0, col='white',xlim=c(0,n.trial),ylim=c(0.5,2.2), xlab="Trials",ylab="Average spike counts", main=paste("Spikes per area in Session", i.s))
+
+
+for(i in 1:n.area){
+  lines(y=trial.summary[[i]],x=trial.summary$id,col=area.col[i],lty=2,lwd=1)
+  lines(smooth.spline(trial.summary$id, trial.summary[[i]]),col=area.col[i],lwd=3)
+  }
+legend("topright", 
+  legend = colnames(trial.summary)[1:n.area], 
+  col = area.col, 
+  lty = 1, 
+  cex = 0.8
+)
+
+
+```
+
+To understand the neural activity patterns, we used the average spike counts across neurons for each brain area. Based on the average spike counts, we can observe the flow of neural activity across the different brain area during Session 2. Each brain area has its own unique fluctuations, but VISpm demonstrates the highest average spike counts as it shows pretty stable flow of  by around 1.5 average counts throughout the trials. On the other hand, unlike VISpm, root seems to have heavy up and down during the trials. Overall, these findings can provide the insights into the dynamics of neural activity within the different brain areas during Session 2. We can also distinguish how different brain areas have their unique stableness throughout the trials.
+
+
+
+We are continued to explore the neural activity patterns in Session 2. As we visualize the wide view of overall neural activity over the trials, we are going to change a point of view and now on we will  concentrate on a specific trial. We are going to build a plot that visualize the activities of all neurons during a specific trial which will be trial 1 Session 2. 
+
+```{r echo = FALSE }
+
+i.t=1
+plot.trial<-function(i.t,area, area.col,this_session){
+    
+    spks=this_session$spks[[i.t]];
+    n.neuron=dim(spks)[1]
+    time.points=this_session$time[[i.t]]
+  
+    
+    plot(0,0,xlim=c(min(time.points),max(time.points)),ylim=c(0,n.neuron+1),col='white', xlab='Time (s)',yaxt='n', ylab='Neuron', main=paste('Trial ',i.t, 'feedback', this_session$feedback_type[i.t] ),cex.lab=1.5)
+    
+    for(i in 1:n.neuron){
+        i.a=which(area== this_session$brain_area[i]);
+        col.this=area.col[i.a]
+        
+        ids.spike=which(spks[i,]>0) # find out when there are spikes 
+        if( length(ids.spike)>0 ){
+            points(x=time.points[ids.spike],y=rep(i, length(ids.spike) ),pch='.',cex=2, col=col.this)
+        }
+      
+            
+    }
+    
+legend("topright", 
+  legend = area, 
+  col = area.col, 
+  pch = 16, 
+  cex = 0.8
+  )
+}
+
+varname=names(trial.summary);
+area=varname[1:(length(varname)-4)]
+plot.trial(1,area, area.col,sessions[[i.s]])
+
+#trial 1 feedback 1 
+i.t <- 1
+feedback_type <- 1
+trial.index <- which(trial.summary$feedback == feedback_type)
+filter.session <- sessions[[i.s]]
+filter.session$feedback_type <- trial.summary$feedback[trial.index]
+area <- unique(filter.session$brain_area)
+plot.trial(i.t, area, area.col, filter.session)
+
+```
+
+These two plot represent the neural activity of the neurons in the same trial but with different feedback types which is either -1 or 1. The x-axis is the time in seconds and the y-axis is the neurons that is involved in the experiments. Neurons in the plot does not have a quantitative meanings but it visualizes the neurons so that we can distinguish the different types of neurons across the brain area. Each brain was assigned to have their unique color, so that we can 
+distinguish the pattern of the different neurons across the times. In the context of the plot, each small dot identifies a spike event detected from a specific neuron at a specific time. 
+
+In these plots, we can observe a distinct pattern in terms of color. On the first trial with feedback type -1, the dominant color are blue(VISI), mint(root), and purple(VISpm). The first trial with feedback type 1, the dominant color are green(VISI) mint(root), and blue(VISpm). Both feedback -1 and 1 have the most distinguishable area which are Root, VISI and VISIpm and the flow of these neurons are pretty much identical to both feedback type throughout trial 1. 
+When you look at the graph, dark colors look more distinct, so you have to look closely, and if you look closely, you can see that other pale colors, neurons, are evenly distributed.
+
+
+
+
+# Trial 2 for feedback +1 and -1 
+```{r echo = FALSE }
+varname=names(trial.summary);
+area=varname[1:(length(varname)-4)]
+plot.trial(2,area, area.col,sessions[[i.s]])
+
+#trial 2 feedback -1 
+i.t <- 2
+feedback_type <- -1
+trial.index <- which(trial.summary$feedback == feedback_type)
+filter.session <- sessions[[i.s]]
+filter.session$feedback_type <- trial.summary$feedback[trial.index]
+area <- unique(filter.session$brain_area)
+plot.trial(i.t, area, area.col, filter.session)
+
+```
+
+In the second trial with positive feedback, similar to the first trial, we can notice that certain dots like VISI, VISIpm, and root were consistently active during the time period, while other neurons appeared occasionally This observation suggests that there may be specific brain areas that exhibit more frequent activity compared to other regions. In the nexr section, we will go through whether there are any similarities across the recorded data. 
+
+
+
+
+
+ 
+In this section, we are going to explore the homogeneity and heterogeneity across sessions and mice. In order to examine the homogeneity and heterogeneity of neural activity, we are going to see whether the average spike counts is consistent throughout the sessions and following trials so that we can see the similarities and differences in the data. 
+
+
+```{r echo = FALSE }
+
+# Initialize a vector to store the average spike counts
+avg_spike_counts <- numeric(length(sessions))
+
+# Loop over sessions and trials
+for (i in 1:length(sessions)) {
+  session <- sessions[[i]]
+  n_trials <- length(session$spks)
+  total_spikes <- numeric(n_trials)
+  
+  # Loop over trials within a session
+  for (j in 1:n_trials) {
+    spks_trial <- session$spks[[j]]
+    total_spikes[j] <- sum(spks_trial)
+  }
+  
+  avg_spike_counts[i] <- mean(total_spikes)
+}
+
+# Print the average spike counts for each session
+cat("Average Spike Counts:\n")
+for (i in 1:length(sessions)) {
+  cat("Session", i, ": ", avg_spike_counts[i], "\n")
+}
+
+# 2 번쨰 274 부터 284 
+
+# Create a bar plot of average spike counts
+barplot(avg_spike_counts, names.arg = paste("Session", 1:length(sessions)), xlab = "Session", ylab = "Average Spike Counts", main = "Average Spike Counts for Each Session")
+
+
+```
+
+In this plot, we can distinguish that there are two highest sessions that has the relatively high average spike counts - Session 8 and Session 13. However, Session 6,7,14,16,17 seems to have relatively low average spike counts that they seem to have counts that is below the 1000. Box Plot can visualize the distribution of average spike counts for each session. It seems like Session 1 through Session 5 has the similar average spike counts, and thus it shows the high level of homogeneity across those sessions. 
+
+
+
+```{r echo = FALSE }
+boxplot(avg_spike_counts, xlab = "Sessions", ylab = "Average Spike Counts")
+```
+
+
+Based on the boxplot, we can see the average spike counts rage which is from 500 to 2000 across sessions. The Lower Quartile seems to be like around 800 which means that approximately 25% of the sessions have average spike counts below 800. The Upper Quartile looks like around 1400 which means that approximately 25% of the sessions have average spike counts above 1400. Lastly, median seems to be around 1300 which means that half of the sessions have average spike counts below 1300 and the other half is above 1300. 
+
+
+
+
+```{r echo = FALSE }
+
+# Create a color palette for each mouse
+mouse_names <- sapply(sessions, function(session) session$mouse_name)
+unique_mice <- unique(mouse_names)
+color_palette <- rainbow(length(unique_mice))
+
+number.neurons <- sapply(sessions, function(session) dim(session$spks[[1]])[1])
+summary(number.neurons)
+
+# Create an empty plot
+plot(0, 0, xlim = range(number.neurons), ylim = range(avg_spike_counts), 
+     xlab = "Number of Neurons", ylab = "Average Spike Counts", type = "n")
+
+# Plot the data points with colors based on the mouse
+for (i in 1:length(sessions)) {
+  mouse_index <- which(unique_mice == mouse_names[i])
+  points(number.neurons[i], avg_spike_counts[i], pch = 16, col = color_palette[mouse_index])
+}
+
+# Add mouse names as text annotations to the plot
+text(number.neurons, avg_spike_counts, labels = mouse_names, pos = 3, col = "black")
+
+
+```
+
+In this plot, it shows the relationship between the number of neurons and average spike counts across the 18 sessions from four mice: Cori, Forssmann, Hence and Lederberg. In terms of heterogeneity, we can observe that even the mice with the same name has different numbers for number of neurons and so as average spike counts. This plot supports the strongness of the  heterogeneity that the number of neurons and the average spike counts are pretty much all over the place. 
+
+
+
+
+
+```{r echo = FALSE }
+
+brain.area.counts <- table(unlist(lapply(sessions, function(session) session$brain_area)))
+
+barplot(brain.area.counts, xlab = "Brain Area", ylab = "Frequency")
+
+most.common <- names(brain.area.counts)[brain.area.counts == max(brain.area.counts)]
+
+```
+
+This bar plot displays the frequency of the most used brain area across sessions. 
+As you can see, root seems to have the most outstanding frequency compare to other areas that it even exceeds the 2000 frequency and became the most frequently used brain area across the session. As we can visualize the variation in the frequencies of the brain areas throughout the sessions, we can observe the heterogeneity in the experiments. Interesting part is that even most the areas could not exceed 1000 frequency, root seems the only area that exceed the beyond the 2000 frequency. In the bar plot, you can capture there is a variation of frequency even in the same brain area. VISrl seems to have the similar average spike counts across sessions as it looks like there are not much up and downs like other brain areas. This can suggest that there might be a consistent patterns of neural firing. It appears there is some level of heterogeneity in the average spike counts across sessions. And so, I believe the analysis of frequency vs. brain area supports that throughout the sessions, the heterogeneity is captured dominantly than the homogeneity. 
+
+
+
+
+
+
+
+```{r echo = FALSE }
+
+reward_mechanisms <- sessions %>%
+  lapply(function(session) {
+    feedback_type <- session$feedback_type
+    contrast_left <- session$contrast_left
+    contrast_right <- session$contrast_right
+    
+    mechanism <- case_when(
+      contrast_left == 0 & contrast_right == 0 ~ "No Contrast",
+      contrast_left == contrast_right & contrast_left != 0 ~ "Equal Contrast",
+      contrast_left > contrast_right ~ "Left > Right",
+      contrast_right > contrast_left ~ "Right > Left"
+    )
+    
+    success_rate <- mean(feedback_type[mechanism == "Equal Contrast"] + 1) / 2
+    
+    data.frame(mechanism = mechanism, success_rate = success_rate, stringsAsFactors = FALSE)
+  }) %>%
+  bind_rows() %>%
+  group_by(mechanism) %>%
+  summarise(
+    avg_success_rate = mean(success_rate),
+    total_trials = n()
+  )
+
+
+print(reward_mechanisms)
+
+
+
+```
+
+
+Based on these results, we can observe that:
+In the "No Contrast" mechanism, where mice have to hold the wheel still, the mice perform better than in the other mechanisms. A similar average success rate was seen for the mechanisms when contrasts were unequal ("Left > Right" and "Right > Left"). This indicates the mice are not biased towards either direction. "Equal Contrast" mechanism, in which the correct choice is randomly selected, has a success rate close to 50%, as expected. Under different rewarding mechanisms, these results provide insights into the mice's decision-making abilities, which can be examined further to understand the factors influencing their behavior.
+
+
+
+To extract the shared patters across sessions and address the difference between session, we are going to combine the data across the trials and sessions in the experiments. PCA plot shows clusters of samples based on their similarity. PCA aims to capture the important flows and the distribution in the data by changing it into a new set of variables called PC. The very first PC is the maximum amount of variance in the data, and PC2 explains the second most variance, and so on. 
+
+The k-means clustering algorithm is used to identify groups or clusters within a dataset based on the similarity of data points. It assigns data points to clusters in a way that minimizes the within-cluster sum of squares. By assigning cluster labels to the data points, you can analyze the characteristics of each cluster and potentially use this information for further analysis or prediction tasks.
+
+```{r echo = FALSE }
+
+neuron_data <- unlist(lapply(sessions, function(session) session$spks), recursive = FALSE)
+neuron_matrix <- do.call(rbind, neuron_data)
+neuron_standardized <- scale(neuron_matrix)
+pca_result <- prcomp(neuron_matrix)
+summary(pca_result)
+
+plot(pca_result, type = "l", main = "Scree Plot")
+
+
+
+
+```
+
+The first principal component (PC1) has the highest standard deviation and explains the highest proportion of variance (0.1772). The cumulative portion of variance. The cumulative proportion of variance is 17.72% of the total variance. 
+Scree Plot is the plot to visualize the proportion of variance explained by each principal component. It shows the porportion of variance explained by each principal component. This allows us to determine the number of principal components to retain for further analysis. I this case, we can see that the first principal component explain a large portion of the variance in the data. The result shows that PC1 accounts for the most important pattern in the data, and can be used to summarize the data in a more simplified way. 
+
+```{r echo = FALSE }
+
+# Create a list to store session IDs for the same mouse
+same_mouse_sessions <- list()
+
+# Iterate over sessions
+for (session in 1:n.session) {
+  # Get mouse name for the current session
+  current_mouse <- meta$mouse_name[session]
+  
+  # Find session IDs with the same mouse name
+  same_mouse <- which(meta$mouse_name == current_mouse)
+  
+  # Add session IDs to the list
+  same_mouse_sessions[[session]] <- same_mouse
+}
+
+# Print the session IDs for the same mouse
+for (session in 1:n.session) {
+  cat("Session:", session, "\n")
+  cat("Mouse Name:", meta$mouse_name[session], "\n")
+  cat("Same Mouse Sessions:", same_mouse_sessions[[session]], "\n\n")
+}
+
+
+
+```
+
+In this data, we know: 
+Mouse: Cori
+Session IDs: 1, 2, 3
+Same Mouse Sessions: 1, 2, 3
+
+Mouse: Forssmann
+Session IDs: 4, 5, 6, 7
+Same Mouse Sessions: 4, 5, 6, 7
+
+Mouse: Hench
+Session IDs: 8, 9, 10, 11
+Same Mouse Sessions: 8, 9, 10, 11
+
+Mouse: Lederberg
+Session IDs: 12, 13, 14, 15, 16, 17, 18
+Same Mouse Sessions: 12, 13, 14, 15, 16, 17, 18
+
+Each mouse undergoes multiple sessions, based on these results. " Sessions for a single mouse" shows the session IDs for all sessions performed for the mouse. For example, for Mouse Cori, sessions 1, 2, and 3 are all conducted with the same mouse.
+
+
+
+Part3
+```{r echo = FALSE }
+
+
+
+tests <- list()
+for (test in 1:2) {
+  test.name <- paste0("/Users/jay/test/test",test, ".rds")
+  test.data <- readRDS(test.name)
+  tests[[test]] <- test.data
+}
+
+
+
+n.test = length(tests)
+
+#varaible names
+for (session in 1:length(tests)) {
+  session_data2 <- tests[[test]]
+  cat("Test:", test, "\n")
+  cat("Variable names:", names(session_data2), "\n")
+  head(session_data2)
+  cat("\n")
+}
+
+meta <- tibble(
+  mouse_name = character(n.test),
+  date_exp = character(n.test),
+  n_brain_area = integer(n.test),
+  n_neurons = integer(n.test),
+  n_trials = integer(n.test),
+  success_rate = double(n.test),
+  most_common_area = character(n.test)  
+
+)
+
+
+for (i in 1:n.test) {
+  tmp <- tests[[i]]
+  meta[i, "mouse_name"] <- tmp$mouse_name
+  meta[i, "date_exp"] <- tmp$date_exp
+  meta[i, "n_brain_area"] <- length(unique(tmp$brain_area))
+  meta[i, "n_neurons"] <- dim(tmp$spks[[1]])[1] #number of rows
+  meta[i, "n_trials"] <- length(tmp$feedback_type)
+  meta[i, "success_rate"] <- mean(tmp$feedback_type+1)/2
+}
+
+
+```
+
+```{r, ref.label=knitr::all_labels(),echo=TRUE,eval=FALSE}
+
+library(dplyr)
+
+i.s=2 
+i.t=1
+
+
+average_spike_area<-function(i.t,this_session){
+  spk.trial = this_session$spks[[i.t]]
+  area= this_session$brain_area
+  spk.count=apply(spk.trial,1,sum) # calculates the total spike count for each neuron in spk.trial using apply(spk.trial, 1, sum). This sums up the spike counts across rows, representing the total spike activity for each neuron.
+  spk.average.tapply=tapply(spk.count, area, mean)
+  return(spk.average.tapply)
+  }
+
+#Test the function
+avg.spk.area.table <- average_spike_area(1,this_session = sessions[[i.s]])
+avg.spk.area.table 
+
+
+n.trial=length(sessions[[i.s]]$feedback_type)
+n.area=length(unique(sessions[[i.s]]$brain_area ))
+trial.summary =matrix(nrow=n.trial,ncol= n.area+1+2+1)
+for(i.t in 1:n.trial){
+  trial.summary[i.t,]=c(average_spike_area(i.t,this_session = sessions[[i.s]]),
+                          sessions[[i.s]]$feedback_type[i.t],
+                        sessions[[i.s]]$contrast_left[i.t],
+                        sessions[[i.s]]$contrast_right[i.s],
+                        i.t)
+}
+
+colnames(trial.summary)=c(names(average_spike_area(i.t,this_session = sessions[[i.s]])), 'feedback', 'left contr.','right contr.','id' )
+
+trial.summary <- as_tibble(trial.summary)
+area.col=rainbow(n=n.area,alpha=0.7)
+plot(x=1,y=0, col='white',xlim=c(0,n.trial),ylim=c(0.5,2.2), xlab="Trials",ylab="Average spike counts", main=paste("Spikes per area in Session", i.s))
+
+
+for(i in 1:n.area){
+  lines(y=trial.summary[[i]],x=trial.summary$id,col=area.col[i],lty=2,lwd=1)
+  lines(smooth.spline(trial.summary$id, trial.summary[[i]]),col=area.col[i],lwd=3)
+  }
+legend("topright", 
+  legend = colnames(trial.summary)[1:n.area], 
+  col = area.col, 
+  lty = 1, 
+  cex = 0.8
+)
+
+
+i.t=1
+plot.trial<-function(i.t,area, area.col,this_session){
+    
+    spks=this_session$spks[[i.t]];
+    n.neuron=dim(spks)[1]
+    time.points=this_session$time[[i.t]]
+  
+    
+    plot(0,0,xlim=c(min(time.points),max(time.points)),ylim=c(0,n.neuron+1),col='white', xlab='Time (s)',yaxt='n', ylab='Neuron', main=paste('Trial ',i.t, 'feedback', this_session$feedback_type[i.t] ),cex.lab=1.5)
+    
+    for(i in 1:n.neuron){
+        i.a=which(area== this_session$brain_area[i]);
+        col.this=area.col[i.a]
+        
+        ids.spike=which(spks[i,]>0) # find out when there are spikes 
+        if( length(ids.spike)>0 ){
+            points(x=time.points[ids.spike],y=rep(i, length(ids.spike) ),pch='.',cex=2, col=col.this)
+        }
+      
+            
+    }
+    
+legend("topright", 
+  legend = area, 
+  col = area.col, 
+  pch = 16, 
+  cex = 0.8
+  )
+}
+
+varname=names(trial.summary);
+area=varname[1:(length(varname)-4)]
+plot.trial(1,area, area.col,sessions[[i.s]])
+
+#trial 1 feedback 1 
+i.t <- 1
+feedback_type <- 1
+trial.index <- which(trial.summary$feedback == feedback_type)
+filter.session <- sessions[[i.s]]
+filter.session$feedback_type <- trial.summary$feedback[trial.index]
+area <- unique(filter.session$brain_area)
+plot.trial(i.t, area, area.col, filter.session)
+
+
+varname=names(trial.summary);
+area=varname[1:(length(varname)-4)]
+plot.trial(2,area, area.col,sessions[[i.s]])
+
+#trial 2 feedback -1 
+i.t <- 2
+feedback_type <- -1
+trial.index <- which(trial.summary$feedback == feedback_type)
+filter.session <- sessions[[i.s]]
+filter.session$feedback_type <- trial.summary$feedback[trial.index]
+area <- unique(filter.session$brain_area)
+plot.trial(i.t, area, area.col, filter.session)
+
+
+avg_spike_counts <- numeric(length(sessions))
+
+for (i in 1:length(sessions)) {
+  session <- sessions[[i]]
+  n_trials <- length(session$spks)
+  total_spikes <- numeric(n_trials)
+  
+  # Loop over trials within a session
+  for (j in 1:n_trials) {
+    spks_trial <- session$spks[[j]]
+    total_spikes[j] <- sum(spks_trial)
+  }
+  
+  avg_spike_counts[i] <- mean(total_spikes)
+}
+
+# Print the average spike counts for each session
+cat("Average Spike Counts:\n")
+for (i in 1:length(sessions)) {
+  cat("Session", i, ": ", avg_spike_counts[i], "\n")
+}
+
+ 
+
+barplot(avg_spike_counts, names.arg = paste("Session", 1:length(sessions)), xlab = "Session", ylab = "Average Spike Counts", main = "Average Spike Counts for Each Session")
+
+
+# Create a color palette for each mouse
+mouse_names <- sapply(sessions, function(session) session$mouse_name)
+unique_mice <- unique(mouse_names)
+color_palette <- rainbow(length(unique_mice))
+
+number.neurons <- sapply(sessions, function(session) dim(session$spks[[1]])[1])
+summary(number.neurons)
+
+# Create an empty plot
+plot(0, 0, xlim = range(number.neurons), ylim = range(avg_spike_counts), 
+     xlab = "Number of Neurons", ylab = "Average Spike Counts", type = "n")
+
+# Plot the data points with colors based on the mouse
+for (i in 1:length(sessions)) {
+  mouse_index <- which(unique_mice == mouse_names[i])
+  points(number.neurons[i], avg_spike_counts[i], pch = 16, col = color_palette[mouse_index])
+}
+
+# Add mouse names as text annotations to the plot
+text(number.neurons, avg_spike_counts, labels = mouse_names, pos = 3, col = "black")
+
+brain.area.counts <- table(unlist(lapply(sessions, function(session) session$brain_area)))
+
+barplot(brain.area.counts, xlab = "Brain Area", ylab = "Frequency")
+
+most.common <- names(brain.area.counts)[brain.area.counts == max(brain.area.counts)]
+
+reward_mechanisms <- sessions %>%
+  lapply(function(session) {
+    feedback_type <- session$feedback_type
+    contrast_left <- session$contrast_left
+    contrast_right <- session$contrast_right
+    
+    mechanism <- case_when(
+      contrast_left == 0 & contrast_right == 0 ~ "No Contrast",
+      contrast_left == contrast_right & contrast_left != 0 ~ "Equal Contrast",
+      contrast_left > contrast_right ~ "Left > Right",
+      contrast_right > contrast_left ~ "Right > Left"
+    )
+    
+    success_rate <- mean(feedback_type[mechanism == "Equal Contrast"] + 1) / 2
+    
+    data.frame(mechanism = mechanism, success_rate = success_rate, stringsAsFactors = FALSE)
+  }) %>%
+  bind_rows() %>%
+  group_by(mechanism) %>%
+  summarise(
+    avg_success_rate = mean(success_rate),
+    total_trials = n()
+  )
+
+
+print(reward_mechanisms)
+
+neuron_data <- unlist(lapply(sessions, function(session) session$spks), recursive = FALSE)
+neuron_matrix <- do.call(rbind, neuron_data)
+neuron_standardized <- scale(neuron_matrix)
+pca_result <- prcomp(neuron_matrix)
+summary(pca_result)
+
+plot(pca_result, type = "l", main = "Scree Plot")
+
+
+
+# Create a list to store session IDs for the same mouse
+same_mouse_sessions <- list()
+
+# Iterate over sessions
+for (session in 1:n.session) {
+  # Get mouse name for the current session
+  current_mouse <- meta$mouse_name[session]
+  
+  # Find session IDs with the same mouse name
+  same_mouse <- which(meta$mouse_name == current_mouse)
+  
+  # Add session IDs to the list
+  same_mouse_sessions[[session]] <- same_mouse
+}
+
+# Print the session IDs for the same mouse
+for (session in 1:n.session) {
+  cat("Session:", session, "\n")
+  cat("Mouse Name:", meta$mouse_name[session], "\n")
+  cat("Same Mouse Sessions:", same_mouse_sessions[[session]], "\n\n")
+}
+
+
+
+tests <- list()
+for (test in 1:2) {
+  test.name <- paste0("/Users/jay/test/test",test, ".rds")
+  test.data <- readRDS(test.name)
+  tests[[test]] <- test.data
+}
+
+
+
+n.test = length(tests)
+
+#varaible names
+for (session in 1:length(tests)) {
+  session_data2 <- tests[[test]]
+  cat("Test:", test, "\n")
+  cat("Variable names:", names(session_data2), "\n")
+  head(session_data2)
+  cat("\n")
+}
+
+meta <- tibble(
+  mouse_name = character(n.test),
+  date_exp = character(n.test),
+  n_brain_area = integer(n.test),
+  n_neurons = integer(n.test),
+  n_trials = integer(n.test),
+  success_rate = double(n.test),
+  most_common_area = character(n.test)  
+
+)
+
+
+for (i in 1:n.test) {
+  tmp <- tests[[i]]
+  meta[i, "mouse_name"] <- tmp$mouse_name
+  meta[i, "date_exp"] <- tmp$date_exp
+  meta[i, "n_brain_area"] <- length(unique(tmp$brain_area))
+  meta[i, "n_neurons"] <- dim(tmp$spks[[1]])[1] #number of rows
+  meta[i, "n_trials"] <- length(tmp$feedback_type)
+  meta[i, "success_rate"] <- mean(tmp$feedback_type+1)/2
+}
+
+
+```
+
+```{r, ref.label=knitr::all_labels(),echo=TRUE,eval=FALSE}
+
+library(dplyr)
+
+sessions <- list()
+for (session in 1:18) {
+  file.name <- paste0("/Users/jay/sessions/session",session, ".rds")
+  session.data <- readRDS(file.name)
+  sessions[[session]] <- session.data
+}
+
+n.session = length(sessions)
+
+#varaible names
+for (session in 1:length(sessions)) {
+  session_data <- sessions[[session]]
+  cat("Session:", session, "\n")
+  cat("Variable names:", names(session_data), "\n")
+  head(session_data)
+  cat("\n")
+}
+
+meta <- tibble(
+  mouse_name = character(n.session),
+  date_exp = character(n.session),
+  n_brain_area = integer(n.session),
+  n_neurons = integer(n.session),
+  n_trials = integer(n.session),
+  success_rate = double(n.session),
+  most_common_area = character(n.session)  
+
+)
+
+
+for (i in 1:n.session) {
+  tmp <- sessions[[i]]
+  meta[i, "mouse_name"] <- tmp$mouse_name
+  meta[i, "date_exp"] <- tmp$date_exp
+  meta[i, "n_brain_area"] <- length(unique(tmp$brain_area))
+  meta[i, "n_neurons"] <- dim(tmp$spks[[1]])[1] #number of rows
+  meta[i, "n_trials"] <- length(tmp$feedback_type)
+  meta[i, "success_rate"] <- mean(tmp$feedback_type+1)/2
+
+ 
+  # Count occurrences of each brain_area
+  area_counts <- table(tmp$brain_area)
+  # Find the most frequent brain_area(s)
+  max_count <- max(area_counts)
+  most_common_areas <- names(area_counts)[area_counts == max_count]
+  # Handle ties for most common area
+  if (TRUE) {
+    most_common_areas <- paste(most_common_areas, collapse = ", ")
+ 
+  }
+ 
+  # Assign the most common area to meta
+  meta[i, "most_common_area"] <- most_common_areas
+ 
+}
+
+x <-print(meta)
+
+```
